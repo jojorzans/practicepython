@@ -1,0 +1,73 @@
+  import os
+    import re
+    import logging
+    import boto3
+​
+    LOG_LEVEL = 'INFO'
+​
+    SUBSCRIPTION_DESTINATION = os.environ.get('SUBSCRIPTION_DESTINATION')
+    TARGET_LG_RE = os.environ.get('TARGET_LG_RE')
+​
+​
+    log_level = logging.getLevelName(LOG_LEVEL.upper())
+    logger = logging.getLogger(__name__)
+    logger.setLevel(log_level)
+​
+    log_client = boto3.client('logs')
+​
+    def add_subscriptions_to_existing_log_groups():
+        log_group_response = log_client.describe_log_groups()
+        while True:
+            if log_group_response:
+                for log_group in log_group_response['logGroups']:
+                    log_group_name = log_group['logGroupName']
+                    add_subscription_filter(log_group_name)
+            if 'nextToken' in log_group_response:
+                log_groups_next_token = log_group_response['nextToken']
+                if log_groups_next_token:
+                    log_group_response = log_client.describe_log_groups(nextToken=log_groups_next_token)
+                else:
+                    break
+            else:
+                break
+​
+    def add_subscription_filter(log_group_name):
+        logger.info("Checking LG: {0} against RE: {1}".format(log_group_name, TARGET_LG_RE))
+        if re.match(TARGET_LG_RE, log_group_name):
+            logger.info("Found match of Log Group: {0}".format(log_group_name))
+            delete_existing_subscription_filter(log_group_name)
+            log_client.put_subscription_filter(
+            logGroupName=log_group_name,
+            filterName='Destination',
+            filterPattern='',
+            destinationArn=SUBSCRIPTION_DESTINATION
+            )
+            logger.info("Put Subscription filter on {0} to destination {1}".format(log_group_name, SUBSCRIPTION_DESTINATION))
+        else:
+            logger.info('Skipping {} since not in target log groups list'.format(log_group_name))
+​
+    def delete_existing_subscription_filter(log_group_name):
+        subscription_filters = log_client.describe_subscription_filters(
+        logGroupName=log_group_name)
+        for subscription_filter in subscription_filters['subscriptionFilters']:
+            filter_name = subscription_filter['filterName']
+            log_client.delete_subscription_filter(
+            logGroupName=log_group_name,
+            filterName=filter_name
+            )
+    def lambda_handler(event, context):
+    logger.info(event)
+    #logger.info("In add_new_subscription Lambda - requestParameters: ")
+    #if 'detail-type' in event.keys():
+    #    add_subscriptions_to_existing_log_groups()
+    #else:
+    #request_parameters = event['detail']['requestParameters']
+    #print(request_parameters)
+    #if request_parameters:
+        #logger.info("Inspecting request parameters for log_group_name:")
+        #log_group_name = request_parameters['logGroupName']
+        #logger.info(log_group_name)
+    #add_subscription_filter(log_group_name)
+    add_subscriptions_to_existing_log_groups()
+​
+​
